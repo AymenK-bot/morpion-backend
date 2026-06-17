@@ -1,0 +1,13 @@
+{
+  "name": "morpion-backend",
+  "version": "1.0.0",
+  "description": "Serveur de matchmaking pour Morpion",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}
