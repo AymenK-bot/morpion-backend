@@ -1,44 +1,73 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const cors = require('cors');
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } }); // Permet à ton site Netlify de se connecter
+app.use(cors());
 
-let queue = []; // Liste des joueurs qui attendent
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: "*", // Permet à Netlify de se connecter
+        methods: ["GET", "POST"]
+    }
+});
+
+let waitingPlayer = null;
 
 io.on('connection', (socket) => {
     console.log(`Joueur connecté : ${socket.id}`);
 
-    socket.on('joinQueue', () => {
-        queue.push(socket);
+    // On reçoit ici les données, dont le playerName
+    socket.on('joinQueue', (data) => {
+        const playerName = (data && data.playerName) ? data.playerName : "Anonyme";
+        socket.playerName = playerName; // On stocke le pseudo dans l'objet socket du joueur
 
-        // S'il y a au moins 2 joueurs dans la file d'attente, on crée un match !
-        if (queue.length >= 2) {
-            const player1 = queue.shift();
-            const player2 = queue.shift();
-            const room = `room_${player1.id}_${player2.id}`;
+        if (waitingPlayer === null) {
+            // Premier joueur qui arrive : il attend
+            waitingPlayer = socket;
+            console.log(`${playerName} attend un adversaire...`);
+        } else {
+            // Deuxième joueur qui arrive : on lance la partie !
+            const roomName = `room-${waitingPlayer.id}-${socket.id}`;
+            
+            waitingPlayer.join(roomName);
+            socket.join(roomName);
 
-            player1.join(room);
-            player2.join(room);
+            console.log(`Partie lancée entre ${waitingPlayer.playerName} et ${socket.playerName}`);
 
-            // On attribue X au premier et O au deuxième
-            player1.emit('gameStart', { room, symbol: 'X' });
-            player2.emit('gameStart', { room, symbol: 'O' });
+            // On envoie à chacun le pseudo de son adversaire respectif !
+            waitingPlayer.emit('gameStart', { 
+                room: roomName, 
+                symbol: 'X',
+                opponentName: socket.playerName 
+            });
+
+            socket.emit('gameStart', { 
+                room: roomName, 
+                symbol: 'O',
+                opponentName: waitingPlayer.playerName 
+            });
+
+            waitingPlayer = null; // On vide la file d'attente pour les prochains
         }
     });
 
     socket.on('playerMove', (data) => {
-        // Renvoie le coup à l'autre joueur dans la même pièce
+        // Renvoie le coup à l'autre joueur de la pièce (room)
         socket.to(data.room).emit('opponentMove', { index: data.index });
     });
 
     socket.on('disconnect', () => {
-        queue = queue.filter(s => s.id !== socket.id);
         console.log(`Joueur déconnecté : ${socket.id}`);
-        // Logique pour avertir l'adversaire si un joueur quitte en pleine partie...
+        if (waitingPlayer && waitingPlayer.id === socket.id) {
+            waitingPlayer = null;
+        }
     });
 });
 
-server.listen(3000, () => console.log('Serveur de matchmaking sur le port 3000'));
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Serveur Morpion en cours d'exécution sur le port ${PORT}`);
+});
