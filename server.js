@@ -9,58 +9,98 @@ app.use(cors());
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: "*", // Permet à Netlify de se connecter
+        origin: "*", 
         methods: ["GET", "POST"]
     }
 });
 
+// Stockage des comptes en mémoire (Pseudo -> Mot de passe)
+// Note : Si le serveur redémarre sur Render, les comptes sont réinitialisés.
+const users = new Map(); 
+
 let waitingPlayer = null;
 
 io.on('connection', (socket) => {
-    console.log(`Joueur connecté : ${socket.id}`);
+    console.log(`Nouvelle connexion socket : ${socket.id}`);
 
-    // On reçoit ici les données, dont le playerName
-    socket.on('joinQueue', (data) => {
-        const playerName = (data && data.playerName) ? data.playerName : "Anonyme";
-        socket.playerName = playerName; // On stocke le pseudo dans l'objet socket du joueur
+    // --- SYSTEME DE COMPTE (CONNEXION / INSCRIPTION) ---
+    socket.on('authenticate', (data) => {
+        const { action, username, password } = data;
+
+        if (!username || !password || username.trim() === "" || password.trim() === "") {
+            socket.emit('authResponse', { success: false, message: "Champs invalides." });
+            return;
+        }
+
+        const trimmedUser = username.trim();
+
+        if (action === 'register') {
+            if (users.has(trimmedUser)) {
+                socket.emit('authResponse', { success: false, message: "Ce pseudo existe déjà !" });
+            } else {
+                users.set(trimmedUser, password);
+                socket.username = trimmedUser;
+                socket.emit('authResponse', { success: true, message: "Inscription réussie !", username: trimmedUser });
+                console.log(`Nouveau compte créé : ${trimmedUser}`);
+            }
+        } 
+        else if (action === 'login') {
+            if (!users.has(trimmedUser)) {
+                socket.emit('authResponse', { success: false, message: "Ce compte n'existe pas." });
+            } else if (users.get(trimmedUser) !== password) {
+                socket.emit('authResponse', { success: false, message: "Mot de passe incorrect." });
+            } else {
+                socket.username = trimmedUser;
+                socket.emit('authResponse', { success: true, message: "Connexion réussie !", username: trimmedUser });
+                console.log(`Joueur connecté à son compte : ${trimmedUser}`);
+            }
+        }
+    });
+
+    // --- REJOINDRE LA FILE D'ATTENTE (SEULEMENT SI AUTHENTIFIÉ) ---
+    socket.on('joinQueue', () => {
+        if (!socket.username) {
+            socket.emit('statusUpdate', { text: "Erreur : Vous devez être connecté." });
+            return;
+        }
 
         if (waitingPlayer === null) {
-            // Premier joueur qui arrive : il attend
             waitingPlayer = socket;
-            console.log(`${playerName} attend un adversaire...`);
+            console.log(`${socket.username} est entré dans la file.`);
         } else {
-            // Deuxième joueur qui arrive : on lance la partie !
+            // Éviter de jouer contre soi-même si on ouvre deux onglets avec le MÊME compte
+            if (waitingPlayer.username === socket.username) {
+                socket.emit('authResponse', { success: true, message: "Déjà en file avec ce compte. Utilisez un autre compte sur l'autre onglet !", stayInMenu: true });
+                return;
+            }
+
             const roomName = `room-${waitingPlayer.id}-${socket.id}`;
-            
             waitingPlayer.join(roomName);
             socket.join(roomName);
 
-            console.log(`Partie lancée entre ${waitingPlayer.playerName} et ${socket.playerName}`);
+            console.log(`Match trouvé : ${waitingPlayer.username} VS ${socket.username}`);
 
-            // On envoie à chacun le pseudo de son adversaire respectif !
             waitingPlayer.emit('gameStart', { 
                 room: roomName, 
                 symbol: 'X',
-                opponentName: socket.playerName 
+                opponentName: socket.username 
             });
 
             socket.emit('gameStart', { 
                 room: roomName, 
                 symbol: 'O',
-                opponentName: waitingPlayer.playerName 
+                opponentName: waitingPlayer.username 
             });
 
-            waitingPlayer = null; // On vide la file d'attente pour les prochains
+            waitingPlayer = null; 
         }
     });
 
     socket.on('playerMove', (data) => {
-        // Renvoie le coup à l'autre joueur de la pièce (room)
         socket.to(data.room).emit('opponentMove', { index: data.index });
     });
 
     socket.on('disconnect', () => {
-        console.log(`Joueur déconnecté : ${socket.id}`);
         if (waitingPlayer && waitingPlayer.id === socket.id) {
             waitingPlayer = null;
         }
@@ -69,5 +109,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Serveur Morpion en cours d'exécution sur le port ${PORT}`);
+    console.log(`Serveur en ligne sur le port ${PORT}`);
 });
