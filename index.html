@@ -115,7 +115,6 @@
             text-align: center;
         }
 
-        /* --- ÉCRAN DE VERROUILLAGE DU PSEUDO OBLIGATOIRE --- */
         #online-auth-box {
             background: var(--panel-bg);
             border: 1px solid var(--panel-border);
@@ -274,10 +273,9 @@
         </div>
     </div>
 
-    <!-- Écran intermédiaire obligatoire pour le mode en ligne -->
     <div id="online-auth-box" class="hidden">
-        <label style="color: var(--color-accent);">Pseudo obligatoire pour jouer en ligne :</label>
-        <input type="text" id="username" placeholder="Entre ton pseudo ici..." maxlength="12">
+        <label style="color: var(--color-accent); font-weight: bold;">Pseudo obligatoire pour jouer en ligne :</label>
+        <input type="text" id="username" placeholder="Entre ton pseudo..." maxlength="12">
         <button id="start-matchmaking-btn">Trouver un adversaire ⚔️</button>
     </div>
 
@@ -373,16 +371,14 @@
                 resetGame();
             } else if (gameMode === 'online') {
                 difficultyGroup.classList.add('hidden');
-                onlineAuthBox.classList.remove('hidden'); // Affiche le verrou de pseudo
+                onlineAuthBox.classList.remove('hidden'); 
                 resetBtn.classList.add('hidden');
-                emoteContainer.classList.add('hidden'); // Masqué tant que la partie n'a pas commencé
-                // On bloque la grille en attendant la saisie
+                emoteContainer.classList.add('hidden'); 
                 cells.forEach(cell => { cell.textContent = ""; cell.classList.remove('X', 'O'); cell.disabled = true; });
                 statusDisplay.textContent = "Saisissez votre pseudo pour jouer.";
             }
         });
 
-        // Clic sur "Trouver un adversaire" après saisie du pseudo
         startMatchmakingBtn.addEventListener('click', () => {
             const val = usernameInput.value.trim();
             if (!val) {
@@ -391,7 +387,7 @@
             }
             myUsername = val;
             localStorage.setItem('morpion_username', myUsername);
-            onlineAuthBox.classList.add('hidden'); // On cache la boîte une fois validée
+            onlineAuthBox.classList.add('hidden'); 
             startOnlineGameFlow();
         });
 
@@ -417,13 +413,23 @@
             socket.on('gameStart', (data) => {
                 roomName = data.room;
                 playerSymbol = data.symbol; 
+                
+                // Nettoyage robuste du nom de l'adversaire
                 opponentName = data.opponentName && data.opponentName !== "Joueur anonyme" ? data.opponentName : "L'adversaire";
 
+                // RESET CRITIQUE DU PLATEAU POUR LE MULTIJOUEUR
+                gameState = ["", "", "", "", "", "", "", "", ""];
                 currentPlayer = 'X';
-                isGameActive = playerSymbol === 'X'; 
+                isGameActive = true; // On active le jeu globalement
+                winLine.style.width = "0";
                 
-                cells.forEach(cell => { cell.textContent = ""; cell.classList.remove('X', 'O'); cell.disabled = false; });
-                emoteContainer.classList.remove('hidden'); // Affiche les émotes pendant le jeu
+                cells.forEach(cell => { 
+                    cell.textContent = ""; 
+                    cell.classList.remove('X', 'O'); 
+                    cell.disabled = false; 
+                });
+                
+                emoteContainer.classList.remove('hidden'); // Affiche le chat d'émotes
                 
                 if (playerSymbol === 'X') {
                     statusDisplay.textContent = `À ton tour de jouer, ${myUsername} (X)`;
@@ -433,31 +439,32 @@
             });
 
             socket.on('opponentMove', (data) => {
-                currentPlayer = playerSymbol === 'X' ? 'O' : 'X';
+                const opponentSymbol = playerSymbol === 'X' ? 'O' : 'X';
+                
+                // Simule le coup de l'adversaire sur notre plateau local
+                gameState[data.index] = opponentSymbol;
                 const cell = document.querySelector(`[data-index="${data.index}"]`);
-                updateCell(cell, data.index);
+                cell.textContent = opponentSymbol;
+                cell.classList.add(opponentSymbol);
+                cell.disabled = true;
                 
                 const gameEnded = checkResult();
                 if (!gameEnded) {
                     currentPlayer = playerSymbol; 
                     statusDisplay.textContent = `À ton tour, ${myUsername} !`;
-                    isGameActive = true;
                 } else {
                     resetBtn.classList.remove('hidden');
                 }
             });
 
-            // Écoute stricte des émotes relayées
             socket.on('shareEmote', (data) => {
                 showEmoteBubble(data.emote, false);
             });
 
             socket.on('disconnect', () => {
-                if (gameMode === 'online' && isGameActive) {
-                    statusDisplay.textContent = `${opponentName} s'est déconnecté.`;
-                    isGameActive = false;
-                    resetBtn.classList.remove('hidden');
-                }
+                statusDisplay.textContent = `${opponentName} s'est déconnecté.`;
+                isGameActive = false;
+                resetBtn.classList.remove('hidden');
             });
         }
 
@@ -465,10 +472,16 @@
             const clickedCell = e.target;
             const clickedCellIndex = parseInt(clickedCell.getAttribute('data-index'));
 
+            // Sécurités de clics
             if (gameState[clickedCellIndex] !== "" || !isGameActive) return;
             if (gameMode === 'online' && currentPlayer !== playerSymbol) return;
 
-            updateCell(clickedCell, clickedCellIndex);
+            // Applique notre coup localement
+            gameState[clickedCellIndex] = playerSymbol;
+            clickedCell.textContent = playerSymbol;
+            clickedCell.classList.add(playerSymbol);
+            clickedCell.disabled = true;
+
             const gameEnded = checkResult();
 
             if (gameMode === 'bot') {
@@ -479,8 +492,7 @@
             } else if (gameMode === 'online') {
                 if (socket) socket.emit('playerMove', { index: clickedCellIndex, room: roomName });
                 if (!gameEnded) {
-                    isGameActive = false;
-                    currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+                    currentPlayer = playerSymbol === 'X' ? 'O' : 'X'; // Passe le tour virtuel à l'autre
                     statusDisplay.textContent = `${opponentName} réfléchit...`;
                 } else {
                     resetBtn.classList.remove('hidden');
@@ -490,19 +502,12 @@
             }
         }
 
-        function updateCell(cell, index) {
-            gameState[index] = currentPlayer;
-            cell.textContent = currentPlayer;
-            cell.classList.add(currentPlayer);
-            cell.disabled = true;
-        }
-
         function handlePlayerChange() {
             currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
             statusDisplay.textContent = `Tour au joueur : ${currentPlayer}`;
         }
 
-        // --- ENVOI DES ÉMOTES ---
+        // --- ÉMOTES ---
         document.querySelectorAll('.emote-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 if (gameMode === 'online' && socket && roomName) {
@@ -534,8 +539,11 @@
             else if (level === 'medium') chosenIndex = Math.random() < 0.5 ? getBestMoveWithMinimax() : getRandomMove();
             else if (level === 'hard') chosenIndex = getBestMoveWithMinimax();
 
+            gameState[chosenIndex] = 'O';
             const botCell = document.querySelector(`[data-index="${chosenIndex}"]`);
-            updateCell(botCell, chosenIndex);
+            botCell.textContent = 'O';
+            botCell.classList.add('O');
+            botCell.disabled = true;
 
             if (!checkResult()) {
                 currentPlayer = 'X';
@@ -598,7 +606,14 @@
             winLine.style.width = "0";
             cells.forEach(cell => { cell.textContent = ""; cell.classList.remove('X', 'O'); cell.disabled = false; });
             statusDisplay.textContent = `Tour au joueur : ${currentPlayer}`;
+            if(gameMode === 'online') {
+                resetBtn.classList.add('hidden');
+                startOnlineGameFlow();
+            }
         }
+
+        cells.forEach(cell => cell.addEventListener('click', handleCellClick));
+        resetBtn.addEventListener('click', resetGame);
     </script>
 </body>
 </html>
