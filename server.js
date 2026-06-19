@@ -19,19 +19,18 @@ let waitingPlayer = null;
 io.on('connection', (socket) => {
     console.log(`Joueur connecté : ${socket.id}`);
 
-    // 1. REJOINDRE LA FILE D'ATTENTE (Modifié pour recevoir le pseudo)
+    // 1. REJOINDRE LA FILE D'ATTENTE (Prend désormais en compte le pseudo envoyé)
     socket.on('joinQueue', (data) => {
-        // On sauvegarde le pseudo envoyé par le client sur l'objet socket
-        socket.username = data && data.username ? data.username : "Anonyme";
+        // On stocke le pseudo reçu sur l'objet socket du joueur
+        socket.username = data && data.username ? data.username : "Joueur anonyme";
 
         if (waitingPlayer && waitingPlayer.id !== socket.id) {
-            // Un joueur attendait, on crée une pièce unique
             const roomName = `room_${waitingPlayer.id}_${socket.id}`;
             
             socket.join(roomName);
             waitingPlayer.join(roomName);
 
-            // On lance le jeu en envoyant à chacun le pseudo de l'autre !
+            // On envoie le pseudo de l'un à l'autre !
             waitingPlayer.emit('gameStart', { 
                 room: roomName, 
                 symbol: 'X', 
@@ -44,23 +43,23 @@ io.on('connection', (socket) => {
                 opponentName: waitingPlayer.username 
             });
 
-            waitingPlayer = null; // La file est vide
+            waitingPlayer = null; 
         } else {
-            // Personne n'attend, ce joueur devient le joueur en attente
             waitingPlayer = socket;
         }
     });
 
-    // 2. JOUER UN COUP (Inchangé)
+    // 2. JOUER UN COUP
     socket.on('playerMove', (data) => {
-        // Renvoie le coup à l'autre joueur dans le même salon
         socket.to(data.room).emit('opponentMove', { index: data.index });
     });
 
-    // 3. RELAYER LES ÉMOTES (Nouveau !)
+    // 3. ENVOYER LES ÉMOTES (Transmet à l'autre joueur du salon)
     socket.on('emotes', (data) => {
-        // Renvoie l'émote reçue à l'autre joueur présent dans le salon
-        socket.to(data.room).emit('emotes', { emote: data.emote });
+        socket.to(data.room).emit('emotes', { 
+            emote: data.emote, 
+            emotion: data.emotion 
+        });
     });
 
     // 4. GESTION DE LA DÉCONNEXION
