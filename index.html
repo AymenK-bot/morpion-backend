@@ -178,7 +178,6 @@
         .cell.O { color: var(--color-o); text-shadow: 0 0 12px rgba(59, 130, 246, 0.4); }
         .cell:disabled { cursor: not-allowed; background-color: #0f172a; opacity: 0.8; }
 
-        /* --- ZONE ÉMOTES --- */
         .emote-container {
             display: flex;
             gap: 10px;
@@ -199,7 +198,6 @@
 
         .emote-btn:hover { transform: scale(1.3); }
 
-        /* Bulle d'émote sur le plateau */
         .emote-bubble {
             position: absolute;
             background: #fff;
@@ -248,12 +246,6 @@
     <div id="streak-container">🔥 Série actuelle : 0</div>
 
     <div class="controls-container">
-        <!-- Champ Pseudo (Sauvegarde locale automatique) -->
-        <div class="control-group">
-            <label for="username">Pseudo</label>
-            <input type="text" id="username" placeholder="Joueur" maxlength="12">
-        </div>
-
         <div class="control-group">
             <label for="gameMode">Mode</label>
             <select id="gameMode">
@@ -261,6 +253,12 @@
                 <option value="friend">Contre un ami</option>
                 <option value="online">En ligne (Matchmaking)</option>
             </select>
+        </div>
+
+        <!-- Le groupe Pseudo est maintenant masqué (hidden) par défaut -->
+        <div class="control-group hidden" id="usernameGroup">
+            <label for="username">Pseudo</label>
+            <input type="text" id="username" placeholder="Joueur anonyme" maxlength="12">
         </div>
 
         <div class="control-group" id="difficultyGroup">
@@ -290,7 +288,6 @@
         </div>
     </div>
 
-    <!-- Zone des Émotes (Masquée par défaut, visible uniquement en ligne) -->
     <div class="emote-container hidden" id="emoteContainer">
         <button class="emote-btn" data-emote="👍">👍</button>
         <button class="emote-btn" data-emote="😮">😮</button>
@@ -309,6 +306,7 @@
         const gameModeSelect = document.getElementById('gameMode');
         const difficultySelect = document.getElementById('difficulty');
         const difficultyGroup = document.getElementById('difficultyGroup');
+        const usernameGroup = document.getElementById('usernameGroup');
         const streakDisplay = document.getElementById('streak-container');
         const winLine = document.getElementById('win-line');
         const usernameInput = document.getElementById('username');
@@ -324,11 +322,11 @@
         let roomName = "";
         let opponentName = "L'adversaire";
 
-        // Gestion du Pseudo local
-        let myUsername = localStorage.getItem('morpion_username') || "Joueur";
-        usernameInput.value = myUsername;
+        let myUsername = localStorage.getItem('morpion_username') || "Joueur anonyme";
+        usernameInput.value = myUsername === "Joueur anonyme" ? "" : myUsername;
+        
         usernameInput.addEventListener('input', (e) => {
-            myUsername = e.target.value.trim() || "Joueur";
+            myUsername = e.target.value.trim() || "Joueur anonyme";
             localStorage.setItem('morpion_username', myUsername);
         });
 
@@ -361,14 +359,17 @@
 
             if (gameMode === 'bot') {
                 difficultyGroup.classList.remove('hidden');
+                usernameGroup.classList.add('hidden');
                 resetBtn.classList.remove('hidden');
                 emoteContainer.classList.add('hidden');
             } else if (gameMode === 'friend') {
                 difficultyGroup.classList.add('hidden');
+                usernameGroup.classList.add('hidden');
                 resetBtn.classList.remove('hidden');
                 emoteContainer.classList.add('hidden');
             } else if (gameMode === 'online') {
                 difficultyGroup.classList.add('hidden');
+                usernameGroup.classList.remove('hidden'); // On affiche le pseudo UNIQUEMENT en ligne
                 resetBtn.classList.add('hidden');
                 emoteContainer.classList.remove('hidden');
                 startOnlineGameFlow(); 
@@ -401,8 +402,12 @@
             socket.on('gameStart', (data) => {
                 roomName = data.room;
                 playerSymbol = data.symbol; 
-                // Récupération du nom de l'adversaire envoyé par le serveur (fallback si non géré par le backend ancien)
-                opponentName = data.opponentName || "L'adversaire";
+                
+                // Correction robuste de l'affichage du pseudo adverse
+                opponentName = data.opponentName && data.opponentName !== "Anonyme" && data.opponentName !== "Joueur anonyme" 
+                               ? data.opponentName 
+                               : "L'adversaire";
+
                 currentPlayer = 'X';
                 isGameActive = playerSymbol === 'X'; 
                 
@@ -430,9 +435,8 @@
                 }
             });
 
-            // Écoute de la réception d'une émote adverse
             socket.on('emotes', (data) => {
-                showEmoteBubble(data.emote, false);
+                showEmoteBubble(data.emotion || data.emote, false);
             });
 
             socket.on('disconnect', () => {
@@ -491,23 +495,23 @@
             statusDisplay.textContent = `Tour au joueur : ${currentPlayer}`;
         }
 
-        // --- ENVOI ET AFFICHAGE DES ÉMOTES ---
         document.querySelectorAll('.emote-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 if (gameMode === 'online' && socket) {
                     const emote = btn.getAttribute('data-emote');
-                    socket.emit('emotes', { emote: emote, room: roomName });
-                    showEmoteBubble(emote, true); // True = C'est nous qui l'envoyons
+                    // On envoie à la fois 'emotion' et 'emote' pour s'assurer de matcher le backend
+                    socket.emit('emotes', { emote: emote, emotion: emote, room: roomName });
+                    showEmoteBubble(emote, true);
                 }
             });
         });
 
         function showEmoteBubble(emote, isLocal) {
+            if (!emote) return;
             const bubble = document.createElement('div');
             bubble.className = 'emote-bubble';
             bubble.textContent = emote;
 
-            // Placement à gauche pour nous, à droite pour l'adversaire
             if (isLocal) {
                 bubble.style.left = "-20px";
                 bubble.style.top = "10px";
@@ -533,11 +537,12 @@
 
             if (!checkResult()) {
                 currentPlayer = 'X';
-                statusDisplay.textContent = `À ton tour, ${myUsername} !`;
+                statusDisplay.textContent = `Tour au joueur : ${currentPlayer}`;
                 isGameActive = true; 
             }
         }
 
+        // Minimax & Logiques de calcul
         function getRandomMove() { let a = []; gameState.forEach((c, i) => { if (c === "") a.push(i); }); return a[Math.floor(Math.random() * a.length)]; }
         function getBestMoveWithMinimax() { let b = -Infinity, m; for (let i = 0; i < 9; i++) { if (gameState[i] === "") { gameState[i] = 'O'; let s = minimax(gameState, 0, false); gameState[i] = ""; if (s > b) { b = s; m = i; } } } return m; }
         function minimax(st, d, isM) { let r = checkWinnerForLines(); if (r !== null) { if (r === 'O') return 10 - d; if (r === 'X') return d - 10; return 0; } if (isM) { let b = -Infinity; for (let i = 0; i < 9; i++) { if (st[i] === "") { st[i] = 'O'; let s = minimax(st, d + 1, false); st[i] = ""; b = Math.max(s, b); } } return b; } else { let b = Infinity; for (let i = 0; i < 9; i++) { if (st[i] === "") { st[i] = 'X'; let s = minimax(st, d + 1, true); st[i] = ""; b = Math.min(s, b); } } return b; } }
@@ -584,7 +589,7 @@
                 isGameActive = false; updateStreakDisplay(); return true;
             } else if (winner === 'X') {
                 drawWinningLine(winConditionMet);
-                if (gameMode === 'bot') { statusDisplay.textContent = `Victoire ! Tu as gagné, ${myUsername} ! 🎉`; botStreak++; localStorage.setItem('morpion_botStreak', botStreak); }
+                if (gameMode === 'bot') { statusDisplay.textContent = `Victoire ! Tu as gagné ! 🎉`; botStreak++; localStorage.setItem('morpion_botStreak', botStreak); }
                 else if (gameMode === 'online') { statusDisplay.textContent = playerSymbol === 'X' ? `Victoire ! 🎉` : `Défaite... ❌`; if (playerSymbol === 'X') onlineStreak++; else onlineStreak = 0; localStorage.setItem('morpion_onlineStreak', onlineStreak); }
                 else { statusDisplay.textContent = "Victoire ! Le joueur X a gagné ! 🎉"; friendStreakX++; friendStreakO = 0; }
                 isGameActive = false; updateStreakDisplay(); return true;
