@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Morpion à niveaux</title>
+    
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+    <style>
+        :root {
+            --bg-gradient: linear-gradient(135deg, #0f172a, #1e1b4b);
+            --panel-bg: rgba(30, 41, 59, 0.7);
+            --panel-border: rgba(255, 255, 255, 0.1);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --color-x: #ef4444;
+            --color-o: #3b82f6;
+            --color-accent: #f59e0b;
+            --color-success: #10b981;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg-gradient);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 2.8rem;
+            font-weight: 800;
+            letter-spacing: -0.05em;
+            background: linear-gradient(to right, #fff, var(--text-muted));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
+
+        #streak-container {
+            font-size: 1rem;
+            font-weight: 600;
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            color: var(--color-accent);
+            padding: 6px 18px;
+            border-radius: 20px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(8px);
+        }
+
+        .controls-container {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 25px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+            background: var(--panel-bg);
+            padding: 12px 24px;
+            border-radius: 16px;
+            border: 1px solid var(--panel-border);
+            backdrop-filter: blur(12px);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        label {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        select, input[type="text"] {
+            padding: 8px 16px;
+            font-size: 0.95rem;
+            border-radius: 8px;
+            border: 1px solid var(--panel-border);
+            font-weight: 600;
+            background-color: #0f172a;
+            color: var(--text-main);
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--color-o);
+        }
+
+        select { cursor: pointer; }
+
+        .hidden { display: none !important; }
+
+        #status {
+            font-size: 1.1rem;
+            margin-bottom: 25px;
+            font-weight: 600;
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            padding: 12px 28px;
+            border-radius: 30px;
+            backdrop-filter: blur(12px);
+            min-height: 24px;
+            text-align: center;
+        }
+
+        .board-container {
+            position: relative;
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(3, 100px);
+            grid-template-rows: repeat(3, 100px);
+            gap: 12px;
+            background: var(--panel-bg);
+            padding: 16px;
+            border-radius: 24px;
+            border: 1px solid var(--panel-border);
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(12px);
+        }
+
+        #win-line {
+            position: absolute;
+            background-color: #fff;
+            height: 6px;
+            border-radius: 3px;
+            transform-origin: left center;
+            transition: width 0.4s ease-out;
+            width: 0;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        @media (max-width: 400px) {
+            .board {
+                grid-template-columns: repeat(3, 85px);
+                grid-template-rows: repeat(3, 85px);
+                gap: 10px;
+                padding: 12px;
+            }
+            .cell { font-size: 2.2rem !important; }
+        }
+
+        .cell {
+            background: #1e293b;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 14px;
+            font-size: 2.6rem;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.05), 0 4px 6px rgba(0, 0, 0, 0.2);
+        }
+
+        .cell:hover:not(:disabled) { background-color: #334155; transform: translateY(-2px); }
+
+        .cell.X { color: var(--color-x); text-shadow: 0 0 12px rgba(239, 68, 68, 0.4); }
+        .cell.O { color: var(--color-o); text-shadow: 0 0 12px rgba(59, 130, 246, 0.4); }
+        .cell:disabled { cursor: not-allowed; background-color: #0f172a; opacity: 0.8; }
+
+        /* --- ZONE ÉMOTES --- */
+        .emote-container {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            background: var(--panel-bg);
+            padding: 8px 16px;
+            border-radius: 20px;
+            border: 1px solid var(--panel-border);
+        }
+
+        .emote-btn {
+            font-size: 1.5rem;
+            background: none;
+            border: none;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .emote-btn:hover { transform: scale(1.3); }
+
+        /* Bulle d'émote sur le plateau */
+        .emote-bubble {
+            position: absolute;
+            background: #fff;
+            color: #000;
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 1.6rem;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            animation: popFade 2s forwards;
+            z-index: 20;
+            pointer-events: none;
+        }
+
+        @keyframes popFade {
+            0% { transform: scale(0) translateY(0); opacity: 0; }
+            15% { transform: scale(1.2) translateY(-10px); opacity: 1; }
+            30% { transform: scale(1) translateY(-10px); opacity: 1; }
+            80% { opacity: 1; }
+            100% { transform: translateY(-30px); opacity: 0; }
+        }
+
+        #reset-btn {
+            margin-top: 25px;
+            padding: 12px 32px;
+            font-size: 1rem;
+            font-weight: 700;
+            background-color: var(--color-success);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        #reset-btn:hover { background-color: #059669; transform: translateY(-2px); }
+    </style>
+</head>
+<body>
+
+    <h1>Morpion à niveaux</h1>
+
+    <div id="streak-container">🔥 Série actuelle : 0</div>
+
+    <div class="controls-container">
+        <!-- Champ Pseudo (Sauvegarde locale automatique) -->
+        <div class="control-group">
+            <label for="username">Pseudo</label>
+            <input type="text" id="username" placeholder="Joueur" maxlength="12">
+        </div>
+
+        <div class="control-group">
+            <label for="gameMode">Mode</label>
+            <select id="gameMode">
+                <option value="bot">Contre l'ordinateur</option>
+                <option value="friend">Contre un ami</option>
+                <option value="online">En ligne (Matchmaking)</option>
+            </select>
+        </div>
+
+        <div class="control-group" id="difficultyGroup">
+            <label for="difficulty">Difficulté</label>
+            <select id="difficulty">
+                <option value="easy">Facile</option>
+                <option value="medium" selected>Moyen</option>
+                <option value="hard">Difficile (Imbattable)</option>
+            </select>
+        </div>
+    </div>
+
+    <div id="status">Tour au joueur : X</div>
+
+    <div class="board-container" id="boardWrapper">
+        <div id="win-line"></div>
+        <div class="board" id="board">
+            <button class="cell" data-index="0"></button>
+            <button class="cell" data-index="1"></button>
+            <button class="cell" data-index="2"></button>
+            <button class="cell" data-index="3"></button>
+            <button class="cell" data-index="4"></button>
+            <button class="cell" data-index="5"></button>
+            <button class="cell" data-index="6"></button>
+            <button class="cell" data-index="7"></button>
+            <button class="cell" data-index="8"></button>
+        </div>
+    </div>
+
+    <!-- Zone des Émotes (Masquée par défaut, visible uniquement en ligne) -->
+    <div class="emote-container hidden" id="emoteContainer">
+        <button class="emote-btn" data-emote="👍">👍</button>
+        <button class="emote-btn" data-emote="😮">😮</button>
+        <button class="emote-btn" data-emote="👑">👑</button>
+        <button class="emote-btn" data-emote="😢">😢</button>
+        <button class="emote-btn" data-emote="🤣">🤣</button>
+    </div>
+
+    <button id="reset-btn">Recommencer</button>
+
+    <script>
+        const board = document.getElementById('board');
+        const cells = document.querySelectorAll('.cell');
+        const statusDisplay = document.getElementById('status');
+        const resetBtn = document.getElementById('reset-btn');
+        const gameModeSelect = document.getElementById('gameMode');
+        const difficultySelect = document.getElementById('difficulty');
+        const difficultyGroup = document.getElementById('difficultyGroup');
+        const streakDisplay = document.getElementById('streak-container');
+        const winLine = document.getElementById('win-line');
+        const usernameInput = document.getElementById('username');
+        const emoteContainer = document.getElementById('emoteContainer');
+        const boardWrapper = document.getElementById('boardWrapper');
+
+        let currentPlayer = 'X'; 
+        let gameState = ["", "", "", "", "", "", "", "", ""];
+        let isGameActive = true;
+        let gameMode = 'bot'; 
+        let playerSymbol = 'X';
+        let socket = null;
+        let roomName = "";
+        let opponentName = "L'adversaire";
+
+        // Gestion du Pseudo local
+        let myUsername = localStorage.getItem('morpion_username') || "Joueur";
+        usernameInput.value = myUsername;
+        usernameInput.addEventListener('input', (e) => {
+            myUsername = e.target.value.trim() || "Joueur";
+            localStorage.setItem('morpion_username', myUsername);
+        });
+
+        let botStreak = parseInt(localStorage.getItem('morpion_botStreak')) || 0;
+        let onlineStreak = parseInt(localStorage.getItem('morpion_onlineStreak')) || 0;
+        let friendStreakX = 0;
+        let friendStreakO = 0;
+
+        const winningConditions = [
+            [0, 1, 2], [3, 4, 5], [6, 7, 8],
+            [0, 3, 6], [1, 4, 7], [2, 5, 8],
+            [0, 4, 8], [2, 4, 6]
+        ];
+
+        function updateStreakDisplay() {
+            if (gameMode === 'bot') streakDisplay.textContent = `🔥 Série vs IA : ${botStreak}`;
+            else if (gameMode === 'online') streakDisplay.textContent = `🔥 Série En Ligne : ${onlineStreak}`;
+            else if (gameMode === 'friend') streakDisplay.textContent = `⚔️ Séries | X : ${friendStreakX} — O : ${friendStreakO}`;
+        }
+        updateStreakDisplay();
+
+        gameModeSelect.addEventListener('change', (e) => {
+            gameMode = e.target.value;
+            updateStreakDisplay();
+
+            if (gameMode !== 'online' && socket) {
+                socket.disconnect();
+                socket = null;
+            }
+
+            if (gameMode === 'bot') {
+                difficultyGroup.classList.remove('hidden');
+                resetBtn.classList.remove('hidden');
+                emoteContainer.classList.add('hidden');
+            } else if (gameMode === 'friend') {
+                difficultyGroup.classList.add('hidden');
+                resetBtn.classList.remove('hidden');
+                emoteContainer.classList.add('hidden');
+            } else if (gameMode === 'online') {
+                difficultyGroup.classList.add('hidden');
+                resetBtn.classList.add('hidden');
+                emoteContainer.classList.remove('hidden');
+                startOnlineGameFlow(); 
+                return;
+            }
+            resetGame();
+        });
+
+        function startOnlineGameFlow() {
+            cells.forEach(cell => { cell.textContent = ""; cell.classList.remove('X', 'O'); cell.disabled = true; });
+            statusDisplay.textContent = "Connexion au serveur... ⏳";
+
+            const serverUrl = "https://morpion-backend-ju6o.onrender.com";
+
+            if (!socket || !socket.connected) {
+                socket = io(serverUrl, { transports: ['websocket', 'polling'], secure: true });
+                setupSocketListeners();
+            } else {
+                statusDisplay.textContent = "Recherche d'un adversaire... 🔍";
+                socket.emit('joinQueue', { username: myUsername });
+            }
+        }
+
+        function setupSocketListeners() {
+            socket.on('connect', () => {
+                statusDisplay.textContent = "Recherche d'un adversaire... 🔍";
+                socket.emit('joinQueue', { username: myUsername });
+            });
+
+            socket.on('gameStart', (data) => {
+                roomName = data.room;
+                playerSymbol = data.symbol; 
+                // Récupération du nom de l'adversaire envoyé par le serveur (fallback si non géré par le backend ancien)
+                opponentName = data.opponentName || "L'adversaire";
+                currentPlayer = 'X';
+                isGameActive = playerSymbol === 'X'; 
+                
+                cells.forEach(cell => cell.disabled = false);
+                
+                if (playerSymbol === 'X') {
+                    statusDisplay.textContent = `Partie trouvée ! À ton tour de jouer (${myUsername})`;
+                } else {
+                    statusDisplay.textContent = `Partie trouvée ! ${opponentName} réfléchit...`;
+                }
+            });
+
+            socket.on('opponentMove', (data) => {
+                currentPlayer = playerSymbol === 'X' ? 'O' : 'X';
+                const cell = document.querySelector(`[data-index="${data.index}"]`);
+                updateCell(cell, data.index);
+                
+                const gameEnded = checkResult();
+                if (!gameEnded) {
+                    currentPlayer = playerSymbol; 
+                    statusDisplay.textContent = `À ton tour, ${myUsername} !`;
+                    isGameActive = true;
+                } else {
+                    resetBtn.classList.remove('hidden');
+                }
+            });
+
+            // Écoute de la réception d'une émote adverse
+            socket.on('emotes', (data) => {
+                showEmoteBubble(data.emote, false);
+            });
+
+            socket.on('disconnect', () => {
+                if (gameMode === 'online' && isGameActive) {
+                    statusDisplay.textContent = `${opponentName} s'est déconnecté.`;
+                    isGameActive = false;
+                    resetBtn.classList.remove('hidden');
+                }
+            });
+            
+            socket.on('connect_error', () => {
+                statusDisplay.textContent = "Le serveur se réveille, patience... 🔄";
+            });
+        }
+
+        difficultySelect.addEventListener('change', () => { resetGame(); });
+
+        function handleCellClick(e) {
+            const clickedCell = e.target;
+            const clickedCellIndex = parseInt(clickedCell.getAttribute('data-index'));
+
+            if (gameState[clickedCellIndex] !== "" || !isGameActive) return;
+            if (gameMode === 'online' && currentPlayer !== playerSymbol) return;
+
+            updateCell(clickedCell, clickedCellIndex);
+            const gameEnded = checkResult();
+
+            if (gameMode === 'bot') {
+                if (gameEnded) return;
+                isGameActive = false; 
+                statusDisplay.textContent = "L'ordinateur réfléchit...";
+                setTimeout(() => { makeBotMove(); }, 500); 
+            } else if (gameMode === 'online') {
+                if (socket) socket.emit('playerMove', { index: clickedCellIndex, room: roomName });
+                if (!gameEnded) {
+                    isGameActive = false;
+                    currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+                    statusDisplay.textContent = `${opponentName} réfléchit...`;
+                } else {
+                    resetBtn.classList.remove('hidden');
+                }
+            } else {
+                if (!gameEnded) handlePlayerChange();
+            }
+        }
+
+        function updateCell(cell, index) {
+            gameState[index] = currentPlayer;
+            cell.textContent = currentPlayer;
+            cell.classList.add(currentPlayer);
+            cell.disabled = true;
+        }
+
+        function handlePlayerChange() {
+            currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+            statusDisplay.textContent = `Tour au joueur : ${currentPlayer}`;
+        }
+
+        // --- ENVOI ET AFFICHAGE DES ÉMOTES ---
+        document.querySelectorAll('.emote-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (gameMode === 'online' && socket) {
+                    const emote = btn.getAttribute('data-emote');
+                    socket.emit('emotes', { emote: emote, room: roomName });
+                    showEmoteBubble(emote, true); // True = C'est nous qui l'envoyons
+                }
+            });
+        });
+
+        function showEmoteBubble(emote, isLocal) {
+            const bubble = document.createElement('div');
+            bubble.className = 'emote-bubble';
+            bubble.textContent = emote;
+
+            // Placement à gauche pour nous, à droite pour l'adversaire
+            if (isLocal) {
+                bubble.style.left = "-20px";
+                bubble.style.top = "10px";
+            } else {
+                bubble.style.right = "-20px";
+                bubble.style.top = "10px";
+            }
+
+            boardWrapper.appendChild(bubble);
+            setTimeout(() => bubble.remove(), 2000);
+        }
+
+        function makeBotMove() {
+            currentPlayer = 'O';
+            const level = difficultySelect.value;
+            let chosenIndex;
+            if (level === 'easy') chosenIndex = getRandomMove();
+            else if (level === 'medium') chosenIndex = Math.random() < 0.5 ? getBestMoveWithMinimax() : getRandomMove();
+            else if (level === 'hard') chosenIndex = getBestMoveWithMinimax();
+
+            const botCell = document.querySelector(`[data-index="${chosenIndex}"]`);
+            updateCell(botCell, chosenIndex);
+
+            if (!checkResult()) {
+                currentPlayer = 'X';
+                statusDisplay.textContent = `À ton tour, ${myUsername} !`;
+                isGameActive = true; 
+            }
+        }
+
+        function getRandomMove() { let a = []; gameState.forEach((c, i) => { if (c === "") a.push(i); }); return a[Math.floor(Math.random() * a.length)]; }
+        function getBestMoveWithMinimax() { let b = -Infinity, m; for (let i = 0; i < 9; i++) { if (gameState[i] === "") { gameState[i] = 'O'; let s = minimax(gameState, 0, false); gameState[i] = ""; if (s > b) { b = s; m = i; } } } return m; }
+        function minimax(st, d, isM) { let r = checkWinnerForLines(); if (r !== null) { if (r === 'O') return 10 - d; if (r === 'X') return d - 10; return 0; } if (isM) { let b = -Infinity; for (let i = 0; i < 9; i++) { if (st[i] === "") { st[i] = 'O'; let s = minimax(st, d + 1, false); st[i] = ""; b = Math.max(s, b); } } return b; } else { let b = Infinity; for (let i = 0; i < 9; i++) { if (st[i] === "") { st[i] = 'X'; let s = minimax(st, d + 1, true); st[i] = ""; b = Math.min(s, b); } } return b; } }
+        function checkWinnerForLines() { for (let c of winningConditions) { let a = gameState[c[0]], b = gameState[c[1]], d = gameState[c[2]]; if (a !== "" && a === b && b === d) return a; } if (!gameState.includes("")) return 'tie'; return null; }
+
+        function drawWinningLine(condition) {
+            const firstCell = cells[condition[0]];
+            const lastCell = cells[condition[2]];
+            const rectFirst = firstCell.getBoundingClientRect();
+            const rectLast = lastCell.getBoundingClientRect();
+            const rectBoard = board.getBoundingClientRect();
+
+            const x1 = (rectFirst.left + rectFirst.width / 2) - rectBoard.left;
+            const y1 = (rectFirst.top + rectFirst.height / 2) - rectBoard.top;
+            const x2 = (rectLast.left + rectLast.width / 2) - rectBoard.left;
+            const y2 = (rectLast.top + rectLast.height / 2) - rectBoard.top;
+
+            const distance = Math.hypot(x2 - x1, y2 - y1);
+            const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+
+            winLine.style.boxShadow = gameState[condition[0]] === 'X' ? "0 0 15px #fff, 0 0 30px var(--color-x)" : "0 0 15px #fff, 0 0 30px var(--color-o)";
+            winLine.style.left = `${x1}px`;
+            winLine.style.top = `${y1}px`;
+            winLine.style.transform = `rotate(${angle}deg)`;
+            winLine.style.width = `${distance}px`;
+        }
+
+        function checkResult() {
+            let winConditionMet = null;
+            let winner = null;
+
+            for (let condition of winningConditions) {
+                let a = gameState[condition[0]], b = gameState[condition[1]], d = gameState[condition[2]];
+                if (a !== "" && a === b && b === d) { winConditionMet = condition; winner = a; break; }
+            }
+
+            if (!winner && !gameState.includes("")) winner = 'tie';
+
+            if (winner === 'O') {
+                drawWinningLine(winConditionMet);
+                if (gameMode === 'bot') { statusDisplay.textContent = "Dommage ! L'ordinateur a gagné ! 🤖"; botStreak = 0; localStorage.setItem('morpion_botStreak', botStreak); }
+                else if (gameMode === 'online') { statusDisplay.textContent = playerSymbol === 'O' ? `Victoire ! 🎉` : `Défaite... ❌`; if (playerSymbol === 'O') onlineStreak++; else onlineStreak = 0; localStorage.setItem('morpion_onlineStreak', onlineStreak); }
+                else { statusDisplay.textContent = "Victoire ! Le joueur O a gagné ! 🎉"; friendStreakO++; friendStreakX = 0; }
+                isGameActive = false; updateStreakDisplay(); return true;
+            } else if (winner === 'X') {
+                drawWinningLine(winConditionMet);
+                if (gameMode === 'bot') { statusDisplay.textContent = `Victoire ! Tu as gagné, ${myUsername} ! 🎉`; botStreak++; localStorage.setItem('morpion_botStreak', botStreak); }
+                else if (gameMode === 'online') { statusDisplay.textContent = playerSymbol === 'X' ? `Victoire ! 🎉` : `Défaite... ❌`; if (playerSymbol === 'X') onlineStreak++; else onlineStreak = 0; localStorage.setItem('morpion_onlineStreak', onlineStreak); }
+                else { statusDisplay.textContent = "Victoire ! Le joueur X a gagné ! 🎉"; friendStreakX++; friendStreakO = 0; }
+                isGameActive = false; updateStreakDisplay(); return true;
+            } else if (winner === 'tie') {
+                statusDisplay.textContent = "Match nul ! 🤝";
+                if (gameMode === 'bot') { botStreak = 0; localStorage.setItem('morpion_botStreak', botStreak); }
+                else if (gameMode === 'online') { onlineStreak = 0; localStorage.setItem('morpion_onlineStreak', onlineStreak); }
+                else { friendStreakX = 0; friendStreakO = 0; }
+                isGameActive = false; updateStreakDisplay(); return true;
+            }
+            return false;
+        }
+
+        function resetGame() {
+            currentPlayer = 'X';
+            gameState = ["", "", "", "", "", "", "", "", ""];
+            isGameActive = true;
+            winLine.style.width = "0";
+
+            statusDisplay.textContent = gameMode === 'online' ? "Recherche de partie..." : `Tour au joueur : ${currentPlayer}`;
+            cells.forEach(cell => { cell.textContent = ""; cell.classList.remove('X', 'O'); cell.disabled = false; });
+
+            if (gameMode === 'online') {
+                resetBtn.classList.add('hidden');
+                startOnlineGameFlow();
+            }
+        }
+
+        cells.forEach(cell => cell.addEventListener('click', handleCellClick));
+        resetBtn.addEventListener('click', resetGame);
+    </script>
+</body>
+</html>
