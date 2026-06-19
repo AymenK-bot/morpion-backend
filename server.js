@@ -9,7 +9,7 @@ app.use(cors());
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: "*", 
+        origin: "*",
         methods: ["GET", "POST"]
     }
 });
@@ -19,45 +19,51 @@ let waitingPlayer = null;
 io.on('connection', (socket) => {
     console.log(`Joueur connecté : ${socket.id}`);
 
-    socket.on('joinQueue', () => {
-        if (waitingPlayer === null) {
-            // Premier joueur : il devient Anonyme 1
-            waitingPlayer = socket;
-            socket.playerName = "Anonyme 1";
-            console.log("Un joueur attend un adversaire...");
-        } else {
-            // Deuxième joueur : il devient Anonyme 2
-            socket.playerName = "Anonyme 2";
-            const roomName = `room-${waitingPlayer.id}-${socket.id}`;
+    // 1. REJOINDRE LA FILE D'ATTENTE (Modifié pour recevoir le pseudo)
+    socket.on('joinQueue', (data) => {
+        // On sauvegarde le pseudo envoyé par le client sur l'objet socket
+        socket.username = data && data.username ? data.username : "Anonyme";
+
+        if (waitingPlayer && waitingPlayer.id !== socket.id) {
+            // Un joueur attendait, on crée une pièce unique
+            const roomName = `room_${waitingPlayer.id}_${socket.id}`;
             
-            waitingPlayer.join(roomName);
             socket.join(roomName);
+            waitingPlayer.join(roomName);
 
-            console.log(`Partie lancée entre Anonyme 1 et Anonyme 2`);
-
-            // On envoie les infos de match aux deux
+            // On lance le jeu en envoyant à chacun le pseudo de l'autre !
             waitingPlayer.emit('gameStart', { 
                 room: roomName, 
-                symbol: 'X',
-                yourName: "Anonyme 1",
-                opponentName: "Anonyme 2" 
+                symbol: 'X', 
+                opponentName: socket.username 
             });
-
+            
             socket.emit('gameStart', { 
                 room: roomName, 
-                symbol: 'O',
-                yourName: "Anonyme 2",
-                opponentName: "Anonyme 1" 
+                symbol: 'O', 
+                opponentName: waitingPlayer.username 
             });
 
-            waitingPlayer = null; 
+            waitingPlayer = null; // La file est vide
+        } else {
+            // Personne n'attend, ce joueur devient le joueur en attente
+            waitingPlayer = socket;
         }
     });
 
+    // 2. JOUER UN COUP (Inchangé)
     socket.on('playerMove', (data) => {
+        // Renvoie le coup à l'autre joueur dans le même salon
         socket.to(data.room).emit('opponentMove', { index: data.index });
     });
 
+    // 3. RELAYER LES ÉMOTES (Nouveau !)
+    socket.on('emotes', (data) => {
+        // Renvoie l'émote reçue à l'autre joueur présent dans le salon
+        socket.to(data.room).emit('emotes', { emote: data.emote });
+    });
+
+    // 4. GESTION DE LA DÉCONNEXION
     socket.on('disconnect', () => {
         console.log(`Joueur déconnecté : ${socket.id}`);
         if (waitingPlayer && waitingPlayer.id === socket.id) {
@@ -68,5 +74,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Serveur Morpion Anonyme sur le port ${PORT}`);
+    console.log(`Serveur Morpion actif sur le port ${PORT}`);
 });
