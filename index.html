@@ -98,12 +98,8 @@
             transition: all 0.2s ease;
         }
 
-        input[type="text"]:focus {
-            border-color: var(--color-o);
-        }
-
+        input[type="text"]:focus { border-color: var(--color-o); }
         select { cursor: pointer; }
-
         .hidden { display: none !important; }
 
         #status {
@@ -119,9 +115,36 @@
             text-align: center;
         }
 
-        .board-container {
-            position: relative;
+        /* --- ÉCRAN DE VERROUILLAGE DU PSEUDO OBLIGATOIRE --- */
+        #online-auth-box {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            padding: 24px;
+            border-radius: 20px;
+            text-align: center;
+            margin-bottom: 25px;
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(12px);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            align-items: center;
         }
+
+        #start-matchmaking-btn {
+            padding: 10px 24px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            background-color: var(--color-o);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        #start-matchmaking-btn:hover { background-color: #2563eb; transform: translateY(-1px); }
+
+        .board-container { position: relative; }
 
         .board {
             display: grid;
@@ -149,12 +172,7 @@
         }
 
         @media (max-width: 400px) {
-            .board {
-                grid-template-columns: repeat(3, 85px);
-                grid-template-rows: repeat(3, 85px);
-                gap: 10px;
-                padding: 12px;
-            }
+            .board { grid-template-columns: repeat(3, 85px); grid-template-rows: repeat(3, 85px); gap: 10px; padding: 12px; }
             .cell { font-size: 2.2rem !important; }
         }
 
@@ -173,7 +191,6 @@
         }
 
         .cell:hover:not(:disabled) { background-color: #334155; transform: translateY(-2px); }
-
         .cell.X { color: var(--color-x); text-shadow: 0 0 12px rgba(239, 68, 68, 0.4); }
         .cell.O { color: var(--color-o); text-shadow: 0 0 12px rgba(59, 130, 246, 0.4); }
         .cell:disabled { cursor: not-allowed; background-color: #0f172a; opacity: 0.8; }
@@ -188,14 +205,7 @@
             border: 1px solid var(--panel-border);
         }
 
-        .emote-btn {
-            font-size: 1.5rem;
-            background: none;
-            border: none;
-            cursor: pointer;
-            transition: transform 0.2s;
-        }
-
+        .emote-btn { font-size: 1.5rem; background: none; border: none; cursor: pointer; transition: transform 0.2s; }
         .emote-btn:hover { transform: scale(1.3); }
 
         .emote-bubble {
@@ -235,7 +245,6 @@
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }
-
         #reset-btn:hover { background-color: #059669; transform: translateY(-2px); }
     </style>
 </head>
@@ -255,12 +264,6 @@
             </select>
         </div>
 
-        <!-- Le groupe Pseudo est maintenant masqué (hidden) par défaut -->
-        <div class="control-group hidden" id="usernameGroup">
-            <label for="username">Pseudo</label>
-            <input type="text" id="username" placeholder="Joueur anonyme" maxlength="12">
-        </div>
-
         <div class="control-group" id="difficultyGroup">
             <label for="difficulty">Difficulté</label>
             <select id="difficulty">
@@ -269,6 +272,13 @@
                 <option value="hard">Difficile (Imbattable)</option>
             </select>
         </div>
+    </div>
+
+    <!-- Écran intermédiaire obligatoire pour le mode en ligne -->
+    <div id="online-auth-box" class="hidden">
+        <label style="color: var(--color-accent);">Pseudo obligatoire pour jouer en ligne :</label>
+        <input type="text" id="username" placeholder="Entre ton pseudo ici..." maxlength="12">
+        <button id="start-matchmaking-btn">Trouver un adversaire ⚔️</button>
     </div>
 
     <div id="status">Tour au joueur : X</div>
@@ -306,7 +316,8 @@
         const gameModeSelect = document.getElementById('gameMode');
         const difficultySelect = document.getElementById('difficulty');
         const difficultyGroup = document.getElementById('difficultyGroup');
-        const usernameGroup = document.getElementById('usernameGroup');
+        const onlineAuthBox = document.getElementById('online-auth-box');
+        const startMatchmakingBtn = document.getElementById('start-matchmaking-btn');
         const streakDisplay = document.getElementById('streak-container');
         const winLine = document.getElementById('win-line');
         const usernameInput = document.getElementById('username');
@@ -322,18 +333,12 @@
         let roomName = "";
         let opponentName = "L'adversaire";
 
-        let myUsername = localStorage.getItem('morpion_username') || "Joueur anonyme";
-        usernameInput.value = myUsername === "Joueur anonyme" ? "" : myUsername;
-        
-        usernameInput.addEventListener('input', (e) => {
-            myUsername = e.target.value.trim() || "Joueur anonyme";
-            localStorage.setItem('morpion_username', myUsername);
-        });
+        let myUsername = localStorage.getItem('morpion_username') || "";
+        usernameInput.value = myUsername;
 
         let botStreak = parseInt(localStorage.getItem('morpion_botStreak')) || 0;
         let onlineStreak = parseInt(localStorage.getItem('morpion_onlineStreak')) || 0;
-        let friendStreakX = 0;
-        let friendStreakO = 0;
+        let friendStreakX = 0; let friendStreakO = 0;
 
         const winningConditions = [
             [0, 1, 2], [3, 4, 5], [6, 7, 8],
@@ -352,36 +357,46 @@
             gameMode = e.target.value;
             updateStreakDisplay();
 
-            if (gameMode !== 'online' && socket) {
-                socket.disconnect();
-                socket = null;
-            }
+            if (socket) { socket.disconnect(); socket = null; }
 
             if (gameMode === 'bot') {
                 difficultyGroup.classList.remove('hidden');
-                usernameGroup.classList.add('hidden');
+                onlineAuthBox.classList.add('hidden');
                 resetBtn.classList.remove('hidden');
                 emoteContainer.classList.add('hidden');
+                resetGame();
             } else if (gameMode === 'friend') {
                 difficultyGroup.classList.add('hidden');
-                usernameGroup.classList.add('hidden');
+                onlineAuthBox.classList.add('hidden');
                 resetBtn.classList.remove('hidden');
                 emoteContainer.classList.add('hidden');
+                resetGame();
             } else if (gameMode === 'online') {
                 difficultyGroup.classList.add('hidden');
-                usernameGroup.classList.remove('hidden'); // On affiche le pseudo UNIQUEMENT en ligne
+                onlineAuthBox.classList.remove('hidden'); // Affiche le verrou de pseudo
                 resetBtn.classList.add('hidden');
-                emoteContainer.classList.remove('hidden');
-                startOnlineGameFlow(); 
+                emoteContainer.classList.add('hidden'); // Masqué tant que la partie n'a pas commencé
+                // On bloque la grille en attendant la saisie
+                cells.forEach(cell => { cell.textContent = ""; cell.classList.remove('X', 'O'); cell.disabled = true; });
+                statusDisplay.textContent = "Saisissez votre pseudo pour jouer.";
+            }
+        });
+
+        // Clic sur "Trouver un adversaire" après saisie du pseudo
+        startMatchmakingBtn.addEventListener('click', () => {
+            const val = usernameInput.value.trim();
+            if (!val) {
+                alert("Tu dois obligatoirement entrer un pseudo pour jouer en ligne !");
                 return;
             }
-            resetGame();
+            myUsername = val;
+            localStorage.setItem('morpion_username', myUsername);
+            onlineAuthBox.classList.add('hidden'); // On cache la boîte une fois validée
+            startOnlineGameFlow();
         });
 
         function startOnlineGameFlow() {
-            cells.forEach(cell => { cell.textContent = ""; cell.classList.remove('X', 'O'); cell.disabled = true; });
             statusDisplay.textContent = "Connexion au serveur... ⏳";
-
             const serverUrl = "https://morpion-backend-ju6o.onrender.com";
 
             if (!socket || !socket.connected) {
@@ -402,21 +417,18 @@
             socket.on('gameStart', (data) => {
                 roomName = data.room;
                 playerSymbol = data.symbol; 
-                
-                // Correction robuste de l'affichage du pseudo adverse
-                opponentName = data.opponentName && data.opponentName !== "Anonyme" && data.opponentName !== "Joueur anonyme" 
-                               ? data.opponentName 
-                               : "L'adversaire";
+                opponentName = data.opponentName && data.opponentName !== "Joueur anonyme" ? data.opponentName : "L'adversaire";
 
                 currentPlayer = 'X';
                 isGameActive = playerSymbol === 'X'; 
                 
-                cells.forEach(cell => cell.disabled = false);
+                cells.forEach(cell => { cell.textContent = ""; cell.classList.remove('X', 'O'); cell.disabled = false; });
+                emoteContainer.classList.remove('hidden'); // Affiche les émotes pendant le jeu
                 
                 if (playerSymbol === 'X') {
-                    statusDisplay.textContent = `Partie trouvée ! À ton tour de jouer (${myUsername})`;
+                    statusDisplay.textContent = `À ton tour de jouer, ${myUsername} (X)`;
                 } else {
-                    statusDisplay.textContent = `Partie trouvée ! ${opponentName} réfléchit...`;
+                    statusDisplay.textContent = `${opponentName} réfléchit...`;
                 }
             });
 
@@ -435,8 +447,9 @@
                 }
             });
 
-            socket.on('emotes', (data) => {
-                showEmoteBubble(data.emotion || data.emote, false);
+            // Écoute stricte des émotes relayées
+            socket.on('shareEmote', (data) => {
+                showEmoteBubble(data.emote, false);
             });
 
             socket.on('disconnect', () => {
@@ -446,13 +459,7 @@
                     resetBtn.classList.remove('hidden');
                 }
             });
-            
-            socket.on('connect_error', () => {
-                statusDisplay.textContent = "Le serveur se réveille, patience... 🔄";
-            });
         }
-
-        difficultySelect.addEventListener('change', () => { resetGame(); });
 
         function handleCellClick(e) {
             const clickedCell = e.target;
@@ -495,13 +502,13 @@
             statusDisplay.textContent = `Tour au joueur : ${currentPlayer}`;
         }
 
+        // --- ENVOI DES ÉMOTES ---
         document.querySelectorAll('.emote-btn').forEach(btn => {
             btn.addEventListener('click', () => {
-                if (gameMode === 'online' && socket) {
-                    const emote = btn.getAttribute('data-emote');
-                    // On envoie à la fois 'emotion' et 'emote' pour s'assurer de matcher le backend
-                    socket.emit('emotes', { emote: emote, emotion: emote, room: roomName });
-                    showEmoteBubble(emote, true);
+                if (gameMode === 'online' && socket && roomName) {
+                    const emoteToSend = btn.getAttribute('data-emote');
+                    socket.emit('sendEmote', { emote: emoteToSend, room: roomName });
+                    showEmoteBubble(emoteToSend, true);
                 }
             });
         });
@@ -512,13 +519,8 @@
             bubble.className = 'emote-bubble';
             bubble.textContent = emote;
 
-            if (isLocal) {
-                bubble.style.left = "-20px";
-                bubble.style.top = "10px";
-            } else {
-                bubble.style.right = "-20px";
-                bubble.style.top = "10px";
-            }
+            if (isLocal) { bubble.style.left = "-20px"; bubble.style.top = "10px"; } 
+            else { bubble.style.right = "-20px"; bubble.style.top = "10px"; }
 
             boardWrapper.appendChild(bubble);
             setTimeout(() => bubble.remove(), 2000);
@@ -537,50 +539,36 @@
 
             if (!checkResult()) {
                 currentPlayer = 'X';
-                statusDisplay.textContent = `Tour au joueur : ${currentPlayer}`;
+                statusDisplay.textContent = `À ton tour de jouer, ${myUsername} !`;
                 isGameActive = true; 
             }
         }
 
-        // Minimax & Logiques de calcul
         function getRandomMove() { let a = []; gameState.forEach((c, i) => { if (c === "") a.push(i); }); return a[Math.floor(Math.random() * a.length)]; }
         function getBestMoveWithMinimax() { let b = -Infinity, m; for (let i = 0; i < 9; i++) { if (gameState[i] === "") { gameState[i] = 'O'; let s = minimax(gameState, 0, false); gameState[i] = ""; if (s > b) { b = s; m = i; } } } return m; }
         function minimax(st, d, isM) { let r = checkWinnerForLines(); if (r !== null) { if (r === 'O') return 10 - d; if (r === 'X') return d - 10; return 0; } if (isM) { let b = -Infinity; for (let i = 0; i < 9; i++) { if (st[i] === "") { st[i] = 'O'; let s = minimax(st, d + 1, false); st[i] = ""; b = Math.max(s, b); } } return b; } else { let b = Infinity; for (let i = 0; i < 9; i++) { if (st[i] === "") { st[i] = 'X'; let s = minimax(st, d + 1, true); st[i] = ""; b = Math.min(s, b); } } return b; } }
         function checkWinnerForLines() { for (let c of winningConditions) { let a = gameState[c[0]], b = gameState[c[1]], d = gameState[c[2]]; if (a !== "" && a === b && b === d) return a; } if (!gameState.includes("")) return 'tie'; return null; }
 
         function drawWinningLine(condition) {
-            const firstCell = cells[condition[0]];
-            const lastCell = cells[condition[2]];
-            const rectFirst = firstCell.getBoundingClientRect();
-            const rectLast = lastCell.getBoundingClientRect();
+            const firstCell = cells[condition[0]]; const lastCell = cells[condition[2]];
+            const rectFirst = firstCell.getBoundingClientRect(); const rectLast = lastCell.getBoundingClientRect();
             const rectBoard = board.getBoundingClientRect();
-
             const x1 = (rectFirst.left + rectFirst.width / 2) - rectBoard.left;
             const y1 = (rectFirst.top + rectFirst.height / 2) - rectBoard.top;
             const x2 = (rectLast.left + rectLast.width / 2) - rectBoard.left;
             const y2 = (rectLast.top + rectLast.height / 2) - rectBoard.top;
-
-            const distance = Math.hypot(x2 - x1, y2 - y1);
-            const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
-
+            const distance = Math.hypot(x2 - x1, y2 - y1); const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
             winLine.style.boxShadow = gameState[condition[0]] === 'X' ? "0 0 15px #fff, 0 0 30px var(--color-x)" : "0 0 15px #fff, 0 0 30px var(--color-o)";
-            winLine.style.left = `${x1}px`;
-            winLine.style.top = `${y1}px`;
-            winLine.style.transform = `rotate(${angle}deg)`;
-            winLine.style.width = `${distance}px`;
+            winLine.style.left = `${x1}px`; winLine.style.top = `${y1}px`; winLine.style.transform = `rotate(${angle}deg)`; winLine.style.width = `${distance}px`;
         }
 
         function checkResult() {
-            let winConditionMet = null;
-            let winner = null;
-
+            let winConditionMet = null; let winner = null;
             for (let condition of winningConditions) {
                 let a = gameState[condition[0]], b = gameState[condition[1]], d = gameState[condition[2]];
                 if (a !== "" && a === b && b === d) { winConditionMet = condition; winner = a; break; }
             }
-
             if (!winner && !gameState.includes("")) winner = 'tie';
-
             if (winner === 'O') {
                 drawWinningLine(winConditionMet);
                 if (gameMode === 'bot') { statusDisplay.textContent = "Dommage ! L'ordinateur a gagné ! 🤖"; botStreak = 0; localStorage.setItem('morpion_botStreak', botStreak); }
@@ -608,18 +596,9 @@
             gameState = ["", "", "", "", "", "", "", "", ""];
             isGameActive = true;
             winLine.style.width = "0";
-
-            statusDisplay.textContent = gameMode === 'online' ? "Recherche de partie..." : `Tour au joueur : ${currentPlayer}`;
             cells.forEach(cell => { cell.textContent = ""; cell.classList.remove('X', 'O'); cell.disabled = false; });
-
-            if (gameMode === 'online') {
-                resetBtn.classList.add('hidden');
-                startOnlineGameFlow();
-            }
+            statusDisplay.textContent = `Tour au joueur : ${currentPlayer}`;
         }
-
-        cells.forEach(cell => cell.addEventListener('click', handleCellClick));
-        resetBtn.addEventListener('click', resetGame);
     </script>
 </body>
 </html>
