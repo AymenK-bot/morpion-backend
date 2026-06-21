@@ -322,10 +322,10 @@
         const emoteContainer = document.getElementById('emoteContainer');
         const boardWrapper = document.getElementById('boardWrapper');
 
-        let currentPlayer = 'X'; 
+        let currentPlayer = 'X';
         let gameState = ["", "", "", "", "", "", "", "", ""];
         let isGameActive = true;
-        let gameMode = 'bot'; 
+        let gameMode = 'bot';
         let playerSymbol = 'X';
         let socket = null;
         let roomName = "";
@@ -336,7 +336,8 @@
 
         let botStreak = parseInt(localStorage.getItem('morpion_botStreak')) || 0;
         let onlineStreak = parseInt(localStorage.getItem('morpion_onlineStreak')) || 0;
-        let friendStreakX = 0; let friendStreakO = 0;
+        let friendStreakX = 0;
+        let friendStreakO = 0;
 
         const winningConditions = [
             [0, 1, 2], [3, 4, 5], [6, 7, 8],
@@ -371,9 +372,9 @@
                 resetGame();
             } else if (gameMode === 'online') {
                 difficultyGroup.classList.add('hidden');
-                onlineAuthBox.classList.remove('hidden'); 
+                onlineAuthBox.classList.remove('hidden');
                 resetBtn.classList.add('hidden');
-                emoteContainer.classList.add('hidden'); 
+                emoteContainer.classList.add('hidden');
                 cells.forEach(cell => { cell.textContent = ""; cell.classList.remove('X', 'O'); cell.disabled = true; });
                 statusDisplay.textContent = "Saisissez votre pseudo pour jouer.";
             }
@@ -387,7 +388,7 @@
             }
             myUsername = val;
             localStorage.setItem('morpion_username', myUsername);
-            onlineAuthBox.classList.add('hidden'); 
+            onlineAuthBox.classList.add('hidden');
             startOnlineGameFlow();
         });
 
@@ -412,25 +413,25 @@
 
             socket.on('gameStart', (data) => {
                 roomName = data.room;
-                playerSymbol = data.symbol; 
-                
-                // Nettoyage robuste du nom de l'adversaire
-                opponentName = data.opponentName && data.opponentName !== "Joueur anonyme" ? data.opponentName : "L'adversaire";
+                playerSymbol = data.symbol;
 
-                // RESET CRITIQUE DU PLATEAU POUR LE MULTIJOUEUR
+                // CORRECTION : simplification du nom adversaire
+                opponentName = data.opponentName || "L'adversaire";
+
                 gameState = ["", "", "", "", "", "", "", "", ""];
                 currentPlayer = 'X';
-                isGameActive = true; // On active le jeu globalement
+                isGameActive = true;
                 winLine.style.width = "0";
-                
-                cells.forEach(cell => { 
-                    cell.textContent = ""; 
-                    cell.classList.remove('X', 'O'); 
-                    cell.disabled = false; 
+
+                cells.forEach(cell => {
+                    cell.textContent = "";
+                    cell.classList.remove('X', 'O');
+                    cell.disabled = false;
                 });
-                
-                emoteContainer.classList.remove('hidden'); // Affiche le chat d'émotes
-                
+
+                emoteContainer.classList.remove('hidden');
+                resetBtn.classList.add('hidden');
+
                 if (playerSymbol === 'X') {
                     statusDisplay.textContent = `À ton tour de jouer, ${myUsername} (X)`;
                 } else {
@@ -440,17 +441,16 @@
 
             socket.on('opponentMove', (data) => {
                 const opponentSymbol = playerSymbol === 'X' ? 'O' : 'X';
-                
-                // Simule le coup de l'adversaire sur notre plateau local
+
                 gameState[data.index] = opponentSymbol;
                 const cell = document.querySelector(`[data-index="${data.index}"]`);
                 cell.textContent = opponentSymbol;
                 cell.classList.add(opponentSymbol);
                 cell.disabled = true;
-                
+
                 const gameEnded = checkResult();
                 if (!gameEnded) {
-                    currentPlayer = playerSymbol; 
+                    currentPlayer = playerSymbol;
                     statusDisplay.textContent = `À ton tour, ${myUsername} !`;
                 } else {
                     resetBtn.classList.remove('hidden');
@@ -461,10 +461,20 @@
                 showEmoteBubble(data.emote, false);
             });
 
-            socket.on('disconnect', () => {
+            // CORRECTION : événement de déconnexion adversaire plus explicite
+            socket.on('opponentDisconnected', () => {
                 statusDisplay.textContent = `${opponentName} s'est déconnecté.`;
                 isGameActive = false;
+                emoteContainer.classList.add('hidden');
                 resetBtn.classList.remove('hidden');
+            });
+
+            socket.on('disconnect', () => {
+                if (isGameActive) {
+                    statusDisplay.textContent = "Connexion perdue...";
+                    isGameActive = false;
+                    resetBtn.classList.remove('hidden');
+                }
             });
         }
 
@@ -472,32 +482,34 @@
             const clickedCell = e.target;
             const clickedCellIndex = parseInt(clickedCell.getAttribute('data-index'));
 
-            // Sécurités de clics
             if (gameState[clickedCellIndex] !== "" || !isGameActive) return;
             if (gameMode === 'online' && currentPlayer !== playerSymbol) return;
 
-            // Applique notre coup localement
-            gameState[clickedCellIndex] = playerSymbol;
-            clickedCell.textContent = playerSymbol;
-            clickedCell.classList.add(playerSymbol);
+            // CORRECTION : en mode ami/bot on joue avec currentPlayer, en ligne avec playerSymbol
+            const symbol = gameMode === 'online' ? playerSymbol : currentPlayer;
+
+            gameState[clickedCellIndex] = symbol;
+            clickedCell.textContent = symbol;
+            clickedCell.classList.add(symbol);
             clickedCell.disabled = true;
 
             const gameEnded = checkResult();
 
             if (gameMode === 'bot') {
                 if (gameEnded) return;
-                isGameActive = false; 
+                isGameActive = false;
                 statusDisplay.textContent = "L'ordinateur réfléchit...";
-                setTimeout(() => { makeBotMove(); }, 500); 
+                setTimeout(() => { makeBotMove(); }, 500);
             } else if (gameMode === 'online') {
                 if (socket) socket.emit('playerMove', { index: clickedCellIndex, room: roomName });
                 if (!gameEnded) {
-                    currentPlayer = playerSymbol === 'X' ? 'O' : 'X'; // Passe le tour virtuel à l'autre
+                    currentPlayer = playerSymbol === 'X' ? 'O' : 'X';
                     statusDisplay.textContent = `${opponentName} réfléchit...`;
                 } else {
                     resetBtn.classList.remove('hidden');
                 }
             } else {
+                // Mode ami : handlePlayerChange alterne currentPlayer
                 if (!gameEnded) handlePlayerChange();
             }
         }
@@ -524,7 +536,7 @@
             bubble.className = 'emote-bubble';
             bubble.textContent = emote;
 
-            if (isLocal) { bubble.style.left = "-20px"; bubble.style.top = "10px"; } 
+            if (isLocal) { bubble.style.left = "-20px"; bubble.style.top = "10px"; }
             else { bubble.style.right = "-20px"; bubble.style.top = "10px"; }
 
             boardWrapper.appendChild(bubble);
@@ -547,48 +559,122 @@
 
             if (!checkResult()) {
                 currentPlayer = 'X';
-                statusDisplay.textContent = `À ton tour de jouer, ${myUsername} !`;
-                isGameActive = true; 
+                statusDisplay.textContent = `À ton tour de jouer, ${myUsername || 'X'} !`;
+                isGameActive = true;
             }
         }
 
-        function getRandomMove() { let a = []; gameState.forEach((c, i) => { if (c === "") a.push(i); }); return a[Math.floor(Math.random() * a.length)]; }
-        function getBestMoveWithMinimax() { let b = -Infinity, m; for (let i = 0; i < 9; i++) { if (gameState[i] === "") { gameState[i] = 'O'; let s = minimax(gameState, 0, false); gameState[i] = ""; if (s > b) { b = s; m = i; } } } return m; }
-        function minimax(st, d, isM) { let r = checkWinnerForLines(); if (r !== null) { if (r === 'O') return 10 - d; if (r === 'X') return d - 10; return 0; } if (isM) { let b = -Infinity; for (let i = 0; i < 9; i++) { if (st[i] === "") { st[i] = 'O'; let s = minimax(st, d + 1, false); st[i] = ""; b = Math.max(s, b); } } return b; } else { let b = Infinity; for (let i = 0; i < 9; i++) { if (st[i] === "") { st[i] = 'X'; let s = minimax(st, d + 1, true); st[i] = ""; b = Math.min(s, b); } } return b; } }
-        function checkWinnerForLines() { for (let c of winningConditions) { let a = gameState[c[0]], b = gameState[c[1]], d = gameState[c[2]]; if (a !== "" && a === b && b === d) return a; } if (!gameState.includes("")) return 'tie'; return null; }
+        function getRandomMove() {
+            let a = [];
+            gameState.forEach((c, i) => { if (c === "") a.push(i); });
+            return a[Math.floor(Math.random() * a.length)];
+        }
+
+        function getBestMoveWithMinimax() {
+            let b = -Infinity, m;
+            for (let i = 0; i < 9; i++) {
+                if (gameState[i] === "") {
+                    gameState[i] = 'O';
+                    let s = minimax(gameState, 0, false);
+                    gameState[i] = "";
+                    if (s > b) { b = s; m = i; }
+                }
+            }
+            return m;
+        }
+
+        function minimax(st, d, isM) {
+            let r = checkWinnerForLines();
+            if (r !== null) {
+                if (r === 'O') return 10 - d;
+                if (r === 'X') return d - 10;
+                return 0;
+            }
+            if (isM) {
+                let b = -Infinity;
+                for (let i = 0; i < 9; i++) {
+                    if (st[i] === "") { st[i] = 'O'; let s = minimax(st, d + 1, false); st[i] = ""; b = Math.max(s, b); }
+                }
+                return b;
+            } else {
+                let b = Infinity;
+                for (let i = 0; i < 9; i++) {
+                    if (st[i] === "") { st[i] = 'X'; let s = minimax(st, d + 1, true); st[i] = ""; b = Math.min(s, b); }
+                }
+                return b;
+            }
+        }
+
+        function checkWinnerForLines() {
+            for (let c of winningConditions) {
+                let a = gameState[c[0]], b = gameState[c[1]], d = gameState[c[2]];
+                if (a !== "" && a === b && b === d) return a;
+            }
+            if (!gameState.includes("")) return 'tie';
+            return null;
+        }
 
         function drawWinningLine(condition) {
-            const firstCell = cells[condition[0]]; const lastCell = cells[condition[2]];
-            const rectFirst = firstCell.getBoundingClientRect(); const rectLast = lastCell.getBoundingClientRect();
+            const firstCell = cells[condition[0]];
+            const lastCell = cells[condition[2]];
+            const rectFirst = firstCell.getBoundingClientRect();
+            const rectLast = lastCell.getBoundingClientRect();
             const rectBoard = board.getBoundingClientRect();
             const x1 = (rectFirst.left + rectFirst.width / 2) - rectBoard.left;
             const y1 = (rectFirst.top + rectFirst.height / 2) - rectBoard.top;
             const x2 = (rectLast.left + rectLast.width / 2) - rectBoard.left;
             const y2 = (rectLast.top + rectLast.height / 2) - rectBoard.top;
-            const distance = Math.hypot(x2 - x1, y2 - y1); const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
-            winLine.style.boxShadow = gameState[condition[0]] === 'X' ? "0 0 15px #fff, 0 0 30px var(--color-x)" : "0 0 15px #fff, 0 0 30px var(--color-o)";
-            winLine.style.left = `${x1}px`; winLine.style.top = `${y1}px`; winLine.style.transform = `rotate(${angle}deg)`; winLine.style.width = `${distance}px`;
+            const distance = Math.hypot(x2 - x1, y2 - y1);
+            const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+            winLine.style.boxShadow = gameState[condition[0]] === 'X'
+                ? "0 0 15px #fff, 0 0 30px var(--color-x)"
+                : "0 0 15px #fff, 0 0 30px var(--color-o)";
+            winLine.style.left = `${x1}px`;
+            winLine.style.top = `${y1}px`;
+            winLine.style.transform = `rotate(${angle}deg)`;
+            winLine.style.width = `${distance}px`;
         }
 
         function checkResult() {
-            let winConditionMet = null; let winner = null;
+            let winConditionMet = null;
+            let winner = null;
+
             for (let condition of winningConditions) {
                 let a = gameState[condition[0]], b = gameState[condition[1]], d = gameState[condition[2]];
                 if (a !== "" && a === b && b === d) { winConditionMet = condition; winner = a; break; }
             }
             if (!winner && !gameState.includes("")) winner = 'tie';
+
             if (winner === 'O') {
                 drawWinningLine(winConditionMet);
-                if (gameMode === 'bot') { statusDisplay.textContent = "Dommage ! L'ordinateur a gagné ! 🤖"; botStreak = 0; localStorage.setItem('morpion_botStreak', botStreak); }
-                else if (gameMode === 'online') { statusDisplay.textContent = playerSymbol === 'O' ? `Victoire ! 🎉` : `Défaite... ❌`; if (playerSymbol === 'O') onlineStreak++; else onlineStreak = 0; localStorage.setItem('morpion_onlineStreak', onlineStreak); }
-                else { statusDisplay.textContent = "Victoire ! Le joueur O a gagné ! 🎉"; friendStreakO++; friendStreakX = 0; }
+                if (gameMode === 'bot') {
+                    statusDisplay.textContent = "Dommage ! L'ordinateur a gagné ! 🤖";
+                    botStreak = 0; localStorage.setItem('morpion_botStreak', botStreak);
+                } else if (gameMode === 'online') {
+                    statusDisplay.textContent = playerSymbol === 'O' ? `Victoire ! 🎉` : `Défaite... ❌`;
+                    if (playerSymbol === 'O') onlineStreak++; else onlineStreak = 0;
+                    localStorage.setItem('morpion_onlineStreak', onlineStreak);
+                } else {
+                    statusDisplay.textContent = "Victoire ! Le joueur O a gagné ! 🎉";
+                    friendStreakO++; friendStreakX = 0;
+                }
                 isGameActive = false; updateStreakDisplay(); return true;
+
             } else if (winner === 'X') {
                 drawWinningLine(winConditionMet);
-                if (gameMode === 'bot') { statusDisplay.textContent = `Victoire ! Tu as gagné ! 🎉`; botStreak++; localStorage.setItem('morpion_botStreak', botStreak); }
-                else if (gameMode === 'online') { statusDisplay.textContent = playerSymbol === 'X' ? `Victoire ! 🎉` : `Défaite... ❌`; if (playerSymbol === 'X') onlineStreak++; else onlineStreak = 0; localStorage.setItem('morpion_onlineStreak', onlineStreak); }
-                else { statusDisplay.textContent = "Victoire ! Le joueur X a gagné ! 🎉"; friendStreakX++; friendStreakO = 0; }
+                if (gameMode === 'bot') {
+                    statusDisplay.textContent = `Victoire ! Tu as gagné ! 🎉`;
+                    botStreak++; localStorage.setItem('morpion_botStreak', botStreak);
+                } else if (gameMode === 'online') {
+                    statusDisplay.textContent = playerSymbol === 'X' ? `Victoire ! 🎉` : `Défaite... ❌`;
+                    if (playerSymbol === 'X') onlineStreak++; else onlineStreak = 0;
+                    localStorage.setItem('morpion_onlineStreak', onlineStreak);
+                } else {
+                    statusDisplay.textContent = "Victoire ! Le joueur X a gagné ! 🎉";
+                    friendStreakX++; friendStreakO = 0;
+                }
                 isGameActive = false; updateStreakDisplay(); return true;
+
             } else if (winner === 'tie') {
                 statusDisplay.textContent = "Match nul ! 🤝";
                 if (gameMode === 'bot') { botStreak = 0; localStorage.setItem('morpion_botStreak', botStreak); }
@@ -596,6 +682,7 @@
                 else { friendStreakX = 0; friendStreakO = 0; }
                 isGameActive = false; updateStreakDisplay(); return true;
             }
+
             return false;
         }
 
@@ -606,8 +693,11 @@
             winLine.style.width = "0";
             cells.forEach(cell => { cell.textContent = ""; cell.classList.remove('X', 'O'); cell.disabled = false; });
             statusDisplay.textContent = `Tour au joueur : ${currentPlayer}`;
-            if(gameMode === 'online') {
+
+            if (gameMode === 'online') {
                 resetBtn.classList.add('hidden');
+                emoteContainer.classList.add('hidden');
+                roomName = "";
                 startOnlineGameFlow();
             }
         }
