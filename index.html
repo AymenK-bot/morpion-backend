@@ -42,7 +42,6 @@
             background: linear-gradient(to right, #fff, var(--text-muted));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            text-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
         }
 
         #streak-container {
@@ -54,7 +53,6 @@
             padding: 6px 18px;
             border-radius: 20px;
             margin-bottom: 20px;
-            backdrop-filter: blur(8px);
         }
 
         .controls-container {
@@ -262,7 +260,6 @@
                 <option value="online">En ligne (Matchmaking)</option>
             </select>
         </div>
-
         <div class="control-group" id="difficultyGroup">
             <label for="difficulty">Difficulté</label>
             <select id="difficulty">
@@ -348,7 +345,7 @@
         function updateStreakDisplay() {
             if (gameMode === 'bot') streakDisplay.textContent = `🔥 Série vs IA : ${botStreak}`;
             else if (gameMode === 'online') streakDisplay.textContent = `🔥 Série En Ligne : ${onlineStreak}`;
-            else if (gameMode === 'friend') streakDisplay.textContent = `⚔️ Séries | X : ${friendStreakX} — O : ${friendStreakO}`;
+            else streakDisplay.textContent = `⚔️ Séries | X : ${friendStreakX} — O : ${friendStreakO}`;
         }
         updateStreakDisplay();
 
@@ -356,7 +353,7 @@
             gameMode = e.target.value;
             updateStreakDisplay();
 
-            if (socket) { socket.disconnect(); socket = null; }
+            if (socket) { socket.disconnect(); socket = null; roomName = ""; }
 
             if (gameMode === 'bot') {
                 difficultyGroup.classList.remove('hidden');
@@ -383,7 +380,7 @@
         startMatchmakingBtn.addEventListener('click', () => {
             const val = usernameInput.value.trim();
             if (!val) {
-                alert("Tu dois obligatoirement entrer un pseudo pour jouer en ligne !");
+                alert("Tu dois entrer un pseudo pour jouer en ligne !");
                 return;
             }
             myUsername = val;
@@ -396,27 +393,31 @@
             statusDisplay.textContent = "Connexion au serveur... ⏳";
             const serverUrl = "https://morpion-backend-ju6o.onrender.com";
 
-            if (!socket || !socket.connected) {
-                socket = io(serverUrl, { transports: ['websocket', 'polling'], secure: true });
-                setupSocketListeners();
-            } else {
-                statusDisplay.textContent = "Recherche d'un adversaire... 🔍";
-                socket.emit('joinQueue', { username: myUsername });
+            // On recrée toujours un socket propre pour éviter les doublons de listeners
+            if (socket) {
+                socket.removeAllListeners();
+                socket.disconnect();
             }
+
+            socket = io(serverUrl, { transports: ['websocket', 'polling'], secure: true });
+            setupSocketListeners();
         }
 
         function setupSocketListeners() {
             socket.on('connect', () => {
+                console.log("Connecté au serveur, envoi joinQueue avec pseudo:", myUsername);
                 statusDisplay.textContent = "Recherche d'un adversaire... 🔍";
                 socket.emit('joinQueue', { username: myUsername });
             });
 
             socket.on('gameStart', (data) => {
+                console.log("gameStart reçu:", data);
+
                 roomName = data.room;
                 playerSymbol = data.symbol;
-
-                // CORRECTION : simplification du nom adversaire
                 opponentName = data.opponentName || "L'adversaire";
+
+                console.log("roomName:", roomName, "| opponentName:", opponentName);
 
                 gameState = ["", "", "", "", "", "", "", "", ""];
                 currentPlayer = 'X';
@@ -433,15 +434,14 @@
                 resetBtn.classList.add('hidden');
 
                 if (playerSymbol === 'X') {
-                    statusDisplay.textContent = `À ton tour de jouer, ${myUsername} (X)`;
+                    statusDisplay.textContent = `À toi de jouer, ${myUsername} (X) — vs ${opponentName} (O)`;
                 } else {
-                    statusDisplay.textContent = `${opponentName} réfléchit...`;
+                    statusDisplay.textContent = `${opponentName} commence (X) — tu es O`;
                 }
             });
 
             socket.on('opponentMove', (data) => {
                 const opponentSymbol = playerSymbol === 'X' ? 'O' : 'X';
-
                 gameState[data.index] = opponentSymbol;
                 const cell = document.querySelector(`[data-index="${data.index}"]`);
                 cell.textContent = opponentSymbol;
@@ -458,23 +458,14 @@
             });
 
             socket.on('shareEmote', (data) => {
+                console.log("Emote reçue de l'adversaire:", data.emote);
                 showEmoteBubble(data.emote, false);
             });
 
-            // CORRECTION : événement de déconnexion adversaire plus explicite
-            socket.on('opponentDisconnected', () => {
-                statusDisplay.textContent = `${opponentName} s'est déconnecté.`;
-                isGameActive = false;
-                emoteContainer.classList.add('hidden');
-                resetBtn.classList.remove('hidden');
-            });
-
             socket.on('disconnect', () => {
-                if (isGameActive) {
-                    statusDisplay.textContent = "Connexion perdue...";
-                    isGameActive = false;
-                    resetBtn.classList.remove('hidden');
-                }
+                statusDisplay.textContent = `Connexion perdue.`;
+                isGameActive = false;
+                resetBtn.classList.remove('hidden');
             });
         }
 
@@ -485,7 +476,6 @@
             if (gameState[clickedCellIndex] !== "" || !isGameActive) return;
             if (gameMode === 'online' && currentPlayer !== playerSymbol) return;
 
-            // CORRECTION : en mode ami/bot on joue avec currentPlayer, en ligne avec playerSymbol
             const symbol = gameMode === 'online' ? playerSymbol : currentPlayer;
 
             gameState[clickedCellIndex] = symbol;
@@ -501,7 +491,8 @@
                 statusDisplay.textContent = "L'ordinateur réfléchit...";
                 setTimeout(() => { makeBotMove(); }, 500);
             } else if (gameMode === 'online') {
-                if (socket) socket.emit('playerMove', { index: clickedCellIndex, room: roomName });
+                console.log("Envoi playerMove, room:", roomName, "index:", clickedCellIndex);
+                if (socket && roomName) socket.emit('playerMove', { index: clickedCellIndex, room: roomName });
                 if (!gameEnded) {
                     currentPlayer = playerSymbol === 'X' ? 'O' : 'X';
                     statusDisplay.textContent = `${opponentName} réfléchit...`;
@@ -509,7 +500,6 @@
                     resetBtn.classList.remove('hidden');
                 }
             } else {
-                // Mode ami : handlePlayerChange alterne currentPlayer
                 if (!gameEnded) handlePlayerChange();
             }
         }
@@ -519,10 +509,10 @@
             statusDisplay.textContent = `Tour au joueur : ${currentPlayer}`;
         }
 
-        // --- ÉMOTES ---
         document.querySelectorAll('.emote-btn').forEach(btn => {
             btn.addEventListener('click', () => {
-                if (gameMode === 'online' && socket && roomName) {
+                console.log("Clic émote, gameMode:", gameMode, "roomName:", roomName, "socket connected:", socket && socket.connected);
+                if (gameMode === 'online' && socket && socket.connected && roomName) {
                     const emoteToSend = btn.getAttribute('data-emote');
                     socket.emit('sendEmote', { emote: emoteToSend, room: roomName });
                     showEmoteBubble(emoteToSend, true);
@@ -535,10 +525,8 @@
             const bubble = document.createElement('div');
             bubble.className = 'emote-bubble';
             bubble.textContent = emote;
-
             if (isLocal) { bubble.style.left = "-20px"; bubble.style.top = "10px"; }
             else { bubble.style.right = "-20px"; bubble.style.top = "10px"; }
-
             boardWrapper.appendChild(bubble);
             setTimeout(() => bubble.remove(), 2000);
         }
@@ -549,7 +537,7 @@
             let chosenIndex;
             if (level === 'easy') chosenIndex = getRandomMove();
             else if (level === 'medium') chosenIndex = Math.random() < 0.5 ? getBestMoveWithMinimax() : getRandomMove();
-            else if (level === 'hard') chosenIndex = getBestMoveWithMinimax();
+            else chosenIndex = getBestMoveWithMinimax();
 
             gameState[chosenIndex] = 'O';
             const botCell = document.querySelector(`[data-index="${chosenIndex}"]`);
@@ -559,7 +547,7 @@
 
             if (!checkResult()) {
                 currentPlayer = 'X';
-                statusDisplay.textContent = `À ton tour de jouer, ${myUsername || 'X'} !`;
+                statusDisplay.textContent = `À ton tour !`;
                 isGameActive = true;
             }
         }
@@ -647,32 +635,16 @@
 
             if (winner === 'O') {
                 drawWinningLine(winConditionMet);
-                if (gameMode === 'bot') {
-                    statusDisplay.textContent = "Dommage ! L'ordinateur a gagné ! 🤖";
-                    botStreak = 0; localStorage.setItem('morpion_botStreak', botStreak);
-                } else if (gameMode === 'online') {
-                    statusDisplay.textContent = playerSymbol === 'O' ? `Victoire ! 🎉` : `Défaite... ❌`;
-                    if (playerSymbol === 'O') onlineStreak++; else onlineStreak = 0;
-                    localStorage.setItem('morpion_onlineStreak', onlineStreak);
-                } else {
-                    statusDisplay.textContent = "Victoire ! Le joueur O a gagné ! 🎉";
-                    friendStreakO++; friendStreakX = 0;
-                }
+                if (gameMode === 'bot') { statusDisplay.textContent = "Dommage ! L'ordi a gagné ! 🤖"; botStreak = 0; localStorage.setItem('morpion_botStreak', botStreak); }
+                else if (gameMode === 'online') { statusDisplay.textContent = playerSymbol === 'O' ? `Victoire ! 🎉` : `Défaite... ❌`; if (playerSymbol === 'O') onlineStreak++; else onlineStreak = 0; localStorage.setItem('morpion_onlineStreak', onlineStreak); }
+                else { statusDisplay.textContent = "Le joueur O a gagné ! 🎉"; friendStreakO++; friendStreakX = 0; }
                 isGameActive = false; updateStreakDisplay(); return true;
 
             } else if (winner === 'X') {
                 drawWinningLine(winConditionMet);
-                if (gameMode === 'bot') {
-                    statusDisplay.textContent = `Victoire ! Tu as gagné ! 🎉`;
-                    botStreak++; localStorage.setItem('morpion_botStreak', botStreak);
-                } else if (gameMode === 'online') {
-                    statusDisplay.textContent = playerSymbol === 'X' ? `Victoire ! 🎉` : `Défaite... ❌`;
-                    if (playerSymbol === 'X') onlineStreak++; else onlineStreak = 0;
-                    localStorage.setItem('morpion_onlineStreak', onlineStreak);
-                } else {
-                    statusDisplay.textContent = "Victoire ! Le joueur X a gagné ! 🎉";
-                    friendStreakX++; friendStreakO = 0;
-                }
+                if (gameMode === 'bot') { statusDisplay.textContent = `Victoire ! Tu as gagné ! 🎉`; botStreak++; localStorage.setItem('morpion_botStreak', botStreak); }
+                else if (gameMode === 'online') { statusDisplay.textContent = playerSymbol === 'X' ? `Victoire ! 🎉` : `Défaite... ❌`; if (playerSymbol === 'X') onlineStreak++; else onlineStreak = 0; localStorage.setItem('morpion_onlineStreak', onlineStreak); }
+                else { statusDisplay.textContent = "Le joueur X a gagné ! 🎉"; friendStreakX++; friendStreakO = 0; }
                 isGameActive = false; updateStreakDisplay(); return true;
 
             } else if (winner === 'tie') {
@@ -696,7 +668,6 @@
 
             if (gameMode === 'online') {
                 resetBtn.classList.add('hidden');
-                emoteContainer.classList.add('hidden');
                 roomName = "";
                 startOnlineGameFlow();
             }
