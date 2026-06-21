@@ -353,7 +353,7 @@
             gameMode = e.target.value;
             updateStreakDisplay();
 
-            if (socket) { socket.disconnect(); socket = null; roomName = ""; }
+            if (socket) { socket.removeAllListeners(); socket.disconnect(); socket = null; roomName = ""; }
 
             if (gameMode === 'bot') {
                 difficultyGroup.classList.remove('hidden');
@@ -389,34 +389,36 @@
             startOnlineGameFlow();
         });
 
+        // CORRECTION PRINCIPALE : on ne recrée le socket que s'il n'existe pas ou est déconnecté
         function startOnlineGameFlow() {
             statusDisplay.textContent = "Connexion au serveur... ⏳";
             const serverUrl = "https://morpion-backend-ju6o.onrender.com";
 
-            // On recrée toujours un socket propre pour éviter les doublons de listeners
-            if (socket) {
-                socket.removeAllListeners();
-                socket.disconnect();
+            if (socket && socket.connected) {
+                statusDisplay.textContent = "Recherche d'un adversaire... 🔍";
+                socket.emit('joinQueue', { username: myUsername });
+            } else {
+                if (socket) {
+                    socket.removeAllListeners();
+                    socket.disconnect();
+                }
+                socket = io(serverUrl, { transports: ['websocket', 'polling'], secure: true });
+                setupSocketListeners();
             }
-
-            socket = io(serverUrl, { transports: ['websocket', 'polling'], secure: true });
-            setupSocketListeners();
         }
 
         function setupSocketListeners() {
             socket.on('connect', () => {
-                console.log("Connecté au serveur, envoi joinQueue avec pseudo:", myUsername);
+                console.log("Connecté, envoi joinQueue avec pseudo:", myUsername);
                 statusDisplay.textContent = "Recherche d'un adversaire... 🔍";
                 socket.emit('joinQueue', { username: myUsername });
             });
 
             socket.on('gameStart', (data) => {
                 console.log("gameStart reçu:", data);
-
                 roomName = data.room;
                 playerSymbol = data.symbol;
                 opponentName = data.opponentName || "L'adversaire";
-
                 console.log("roomName:", roomName, "| opponentName:", opponentName);
 
                 gameState = ["", "", "", "", "", "", "", "", ""];
@@ -463,7 +465,7 @@
             });
 
             socket.on('disconnect', () => {
-                statusDisplay.textContent = `Connexion perdue.`;
+                statusDisplay.textContent = "Connexion perdue.";
                 isGameActive = false;
                 resetBtn.classList.remove('hidden');
             });
