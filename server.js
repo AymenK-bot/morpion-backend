@@ -17,7 +17,7 @@ io.on('connection', (socket) => {
     console.log(`Joueur connecté : ${socket.id}`);
 
     socket.on('joinQueue', (data) => {
-        socket.username = data && data.username ? data.username : "Joueur anonyme";
+        socket.username = (data && data.username) ? data.username.trim() : "Anonyme";
         console.log(`${socket.username} rejoint la file.`);
 
         if (waitingPlayer && waitingPlayer.id !== socket.id) {
@@ -25,6 +25,8 @@ io.on('connection', (socket) => {
 
             socket.join(roomName);
             waitingPlayer.join(roomName);
+
+            console.log(`Partie: ${waitingPlayer.username} (X) vs ${socket.username} (O) dans ${roomName}`);
 
             waitingPlayer.emit('gameStart', {
                 room: roomName,
@@ -38,35 +40,32 @@ io.on('connection', (socket) => {
                 opponentName: waitingPlayer.username
             });
 
-            console.log(`Partie lancée dans ${roomName} : ${waitingPlayer.username} (X) vs ${socket.username} (O)`);
             waitingPlayer = null;
         } else {
             waitingPlayer = socket;
-            console.log(`${socket.username} attend un adversaire...`);
+            console.log(`${socket.username} attend...`);
         }
     });
 
     socket.on('playerMove', (data) => {
-        socket.to(data.room).emit('opponentMove', { index: data.index });
+        if (data.room) {
+            socket.to(data.room).emit('opponentMove', { index: data.index });
+        }
     });
 
     socket.on('sendEmote', (data) => {
+        console.log(`Emote reçue: ${data.emote} dans room: ${data.room}`);
         if (data.room) {
             socket.to(data.room).emit('shareEmote', { emote: data.emote });
+            console.log(`Emote envoyée à la room ${data.room}`);
         }
     });
 
     socket.on('disconnect', () => {
-        console.log(`Joueur déconnecté : ${socket.id}`);
+        console.log(`Déconnecté : ${socket.id}`);
         if (waitingPlayer && waitingPlayer.id === socket.id) {
             waitingPlayer = null;
         }
-        // Notifie l'adversaire dans toutes les rooms de ce socket
-        socket.rooms.forEach(room => {
-            if (room !== socket.id) {
-                socket.to(room).emit('opponentDisconnected');
-            }
-        });
     });
 });
 
